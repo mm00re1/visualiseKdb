@@ -18,7 +18,7 @@ Make a virtual python environment, activate it, install the required modules, an
     
     >> python -m venv venv
     >> ./venv/Scripts/activate
-    >> pip install requirements.txt
+    >> pip install -r requirements.txt
     >> python app.py
 
 **Launch Demo React Frontend**
