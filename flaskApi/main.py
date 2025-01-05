@@ -38,10 +38,7 @@ async def get_indexes(tbl: str):
 
 @app.websocket("/live")
 async def trade_sub_ws(websocket: WebSocket):
-    """
-    WebSocket endpoint. 
-    The client can connect with: ws://localhost:8000/live?tbl=trade&index=TSLA
-    """
+    #    Example the client can connect with: ws://localhost:8000/live?tbl=trade&index=TSLA
     await websocket.accept()
 
     # Extract query params from the WebSocket URL
@@ -52,31 +49,44 @@ async def trade_sub_ws(websocket: WebSocket):
     qThread = kdbSub(tbl, index, kdb_host, kdb_port)
     qThread.start()
 
+    keepalive_counter = 0
+
     try:
-        while not qThread.stopped():
+        while True:
+            if qThread.stopped():
+                break
+
             try:
                 # Attempt to get data without blocking:
                 data = qThread.message_queue.get_nowait()
             except Empty:
-                # No data right now, so let the event loop run briefly
-                await asyncio.sleep(0.01)
-                continue
+                data = None
 
-            # Convert row to JSON
-            if tbl == 'trade':
-                json_data = json.dumps({
-                    'time': int(data[0]),
-                    'price': data[1],
-                })
+            if data:
+                if tbl == 'trade':
+                    json_data = json.dumps({
+                        'time': int(data[0]),
+                        'price': data[1],
+                    })
+                else:
+                    json_data = json.dumps({
+                        'time': int(data[0]),
+                        'bid': data[1],
+                        'ask': data[2],
+                    })
+
+                # Send to client
+                await websocket.send_text(json_data)
+
             else:
-                json_data = json.dumps({
-                    'time': int(data[0]),
-                    'bid': data[1],
-                    'ask': data[2],
-                })
+                keepalive_counter += 1
+                if keepalive_counter >= 100:  # e.g. every ~1 second if each loop is 0.01s
+                    # Force a send that fails if the socket is closed
+                    await websocket.send_text("KEEPALIVE")
+                    keepalive_counter = 0
 
-            # Send to client
-            await websocket.send_text(json_data)
+                # Yield control back to the event loop briefly
+                await asyncio.sleep(0.01)
 
     except WebSocketDisconnect:
         print("WebSocket disconnected.")
@@ -85,6 +95,8 @@ async def trade_sub_ws(websocket: WebSocket):
     finally:
         # Clean up the subscription thread
         qThread.stopit()
+        print("finished the stopit")
+
 
 '''   # SSE Approach defined below
 def push_sse_events(listener_thread, tbl):

@@ -58,6 +58,10 @@ const LivePage = () => {
     };
 
     newSocket.onmessage = (e) => {
+      console.log("e: ",e)
+      if (e.data === "KEEPALIVE") {
+        return;  // Ignore keepalive messages
+      }
       const newData = JSON.parse(e.data);
       // If pxType is 'bid' or 'ask', set the displayed "price" from that field
       if (pxType === 'bid') {
