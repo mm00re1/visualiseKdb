@@ -4,13 +4,9 @@ Demo displaying live and historical data from kdb with a flask api and a react f
 # Setup Instructions
 **Begin streaming dummy kdb data**
 
-Start the kdb server, load in the q script, and set the timer
+Start the kdb server
 
-    >> q -p 5000
-    KDB+ 4.0 2023.08.11 Copyright (C) 1993-2023 Kx Systems
-    ...
-    q)\l dataGeneration.q
-    q)\t 100
+    >> q .\dataGeneration.q -p 5000 -t 100
 
 **Setup the Flask Api**
 

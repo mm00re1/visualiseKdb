@@ -4,7 +4,7 @@ import threading
 from qpython.qtype import QException
 from qpython.qcollection import QTable
 from queue import Queue
-
+import time
 
 def sendKdbQuery(kdbFunction, host, port, *args):
     q = QConnection(host=host, port=port)
@@ -24,10 +24,12 @@ class kdbSub(threading.Thread):
 
     def stopit(self):
         print("unsubbing")
+        self._stopper.set()           # <--- signal thread first
+        # give the thread time to break from the loop
+        time.sleep(0.1)
         print("closing conn")
         self.q.close()
         ###self.q.sendAsync(".u.unsub","direct unsub")  --> unsub logic is also handled in .z.pc
-        self._stopper.set()
 
     def stopped(self):
         return self._stopper.is_set()
