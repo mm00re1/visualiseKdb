@@ -4,9 +4,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from queue import Empty
 import pandas as pd
 from kdbSubs import *
-from qpython.qconnection import QConnection
 import json
 import asyncio
+import uvicorn
+import threading
 
 app = FastAPI()
 
@@ -21,14 +22,27 @@ app.add_middleware(
 kdb_host = "localhost"
 kdb_port = 5000
 
+def make_json_serializable(data):
+    """Recursively convert non-serializable objects in the data to JSON-friendly types."""
+    if isinstance(data, dict):
+        # Convert each value in the dictionary
+        return {key: make_json_serializable(value) for key, value in data.items()}
+    elif isinstance(data, list):
+        # Convert each element in the list
+        return [make_json_serializable(element) for element in data]
+    elif isinstance(data, pd.Timedelta):
+        # Convert Timedelta to string (or seconds if you prefer)
+        return str(data).split(" ")[-1]
+    elif hasattr(data, 'item'):  # Handles numpy types like np.int32, np.float64
+        return data.item()
+    else:
+        return data
+
 @app.get("/pullData/{tbl}/{index}")
 async def pull_data(tbl: str, index: str):
-    res = pd.DataFrame(sendKdbQuery('.gw.pullData', kdb_host, kdb_port, tbl, index))
-    parseKdbTableWithSymbols(res)
-    #parsing the times from integers on the frontend, if doing it on the python side use this next line
-    #res['time'] = pd.to_datetime(res['time'], unit='ms').dt.strftime('%H:%M:%S.%f')
-    result_dict = {column: res[column].tolist() for column in res.columns}
-    return result_dict
+    data = sendKdbQuery('.gw.pullData', kdb_host, kdb_port, tbl, index)
+    json_data = make_json_serializable(data)
+    return json_data
 
 @app.get("/pullData_options/{tbl}")
 async def get_indexes(tbl: str):
@@ -40,15 +54,14 @@ async def get_indexes(tbl: str):
 async def trade_sub_ws(websocket: WebSocket):
     #    Example the client can connect with: ws://localhost:8000/live?tbl=trade&index=TSLA
     await websocket.accept()
-
-    # Extract query params from the WebSocket URL
+    print(f"Active threads: {threading.active_count()}")
+    
     tbl = websocket.query_params.get('tbl', 'trade')
     index = websocket.query_params.get('index', 'TSLA')
 
-    # Spin up the subscription thread
-    qThread = kdbSub(tbl, index, kdb_host, kdb_port)
+    # Create the subscription thread with *args
+    qThread = kdbSub(kdb_host, kdb_port, tbl, index)
     qThread.start()
-
     keepalive_counter = 0
 
     try:
@@ -56,37 +69,33 @@ async def trade_sub_ws(websocket: WebSocket):
             if qThread.stopped():
                 break
 
-            try:
-                # Attempt to get data without blocking:
-                data = qThread.message_queue.get_nowait()
-            except Empty:
-                data = None
+            # Drain the queue to get the latest message, we discard the earlier messages
+            latest_data = None
+            while True:
+                try:
+                    latest_data = qThread.message_queue.get_nowait()
+                except Empty:
+                    break
 
-            if data:
-                if tbl == 'trade':
-                    json_data = json.dumps({
-                        'time': int(data[0]),
-                        'price': data[1],
-                    })
-                else:
-                    json_data = json.dumps({
-                        'time': int(data[0]),
-                        'bid': data[1],
-                        'ask': data[2],
-                    })
-
-                # Send to client
-                await websocket.send_text(json_data)
+            if latest_data:
+                try:
+                    # Convert numpy types to Python native types (e.g., int, float)
+                    serializable_data = make_json_serializable(latest_data)
+                    json_data = json.dumps(serializable_data)
+                    await websocket.send_text(json_data)
+                except Exception as e:
+                    # Log any unexpected serialization errors
+                    print(f"Error serializing data: {e}")
 
             else:
                 keepalive_counter += 1
-                if keepalive_counter >= 100:  # e.g. every ~1 second if each loop is 0.01s
+                if keepalive_counter >= 50:  # e.g. every ~5 second if each loop is 0.1s
                     # Force a send that fails if the socket is closed
                     await websocket.send_text("KEEPALIVE")
                     keepalive_counter = 0
 
                 # Yield control back to the event loop briefly
-                await asyncio.sleep(0.01)
+                await asyncio.sleep(0.1)
 
     except WebSocketDisconnect:
         print("WebSocket disconnected.")
@@ -127,5 +136,4 @@ async def trade_sub(request: Request, tbl: str = 'trade', index: str = 'TSLA'):
 '''
 
 if __name__ == "__main__":
-    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

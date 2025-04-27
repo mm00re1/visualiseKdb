@@ -63,13 +63,17 @@ const LivePage = () => {
         return;  // Ignore keepalive messages
       }
       const newData = JSON.parse(e.data);
+      let newTick = {}
+      newTick['time'] = newData['rows'].at(-1)['time']
       // If pxType is 'bid' or 'ask', set the displayed "price" from that field
       if (pxType === 'bid') {
-        newData['price'] = newData['bid'];
+        newTick['price'] = newData['rows'].at(-1)['bid'];
       } else if (pxType === 'ask') {
-        newData['price'] = newData['ask'];
+        newTick['price'] = newData['rows'].at(-1)['ask'];
+      } else {
+        newTick['price'] = newData['rows'].at(-1)['price']
       }
-      setTableData(prev => [...prev, newData]);
+      setTableData(prev => [...prev, newTick]);
     };
 
     newSocket.onclose = () => {
@@ -117,7 +121,7 @@ const LivePage = () => {
         </Select>
       </FormControl>          
 
-      {TradeChart(tableData)}
+      <TradeChart data={tableData} />
     </div>
   );
 };

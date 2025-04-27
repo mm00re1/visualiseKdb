@@ -1,15 +1,33 @@
 import React from 'react';
 import ApexCharts from 'react-apexcharts';
 
-const TradeChart = (data) => {
-  if (data === undefined) {
-        return <div></div>;
+function parseTimeToTimestamp(timeStr) {
+  const today = new Date();
+  const [hours, minutes, secondsMillis] = timeStr.split(':');
+  const [seconds, millis] = secondsMillis.split('.');
+
+  const date = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+    Number(hours),
+    Number(minutes),
+    Number(seconds),
+    Number(millis.slice(0, 3)) // slice to 3 digits (milliseconds)
+  );
+
+  return date.getTime(); // timestamp in ms
+}
+
+const TradeChart = ({ data }) => {
+  if (!data || data.length === 0) {
+    return <div>No data available</div>;
   }
 
   const series = [{
     name: 'Price',
     data: data.map(item => ({
-      x: item.time,
+      x: parseTimeToTimestamp(item.time),
       y: item.price
     }))
   }];
